@@ -90,6 +90,7 @@ In PowerShell, run:
 
 ```powershell
 setx GROQ_API_KEY "your_groq_api_key_here"
+```
 
 ## Project Structure
 
