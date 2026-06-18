@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <title>ErrorLens</title>
+
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/7.0.1/css/all.min.css" integrity="sha512-2SwdPD6INVrV/lHTZbO2nodKhrnDdJK9/kg2XD1r9uGqPo1cUbujc+IYdlYdEErWNu69gVcYgdxlmVmzTWnetw==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+        <link rel="stylesheet" href="app.css">
+    </head>
+
+    <body>
+        <div id="app">
+            <div id="langBar">
+                <div class="lang active" data-lang="javascript" title="JavaScript">
+                    <i class="fa-brands fa-js"></i>
+                </div>
+
+                <div class="lang" data-lang="html" title="HTML">
+                    <i class="fa-brands fa-html5"></i>
+                </div>
+
+                <div class="lang" data-lang="css" title="CSS">
+                    <i class="fa-brands fa-css3-alt"></i>
+                </div>
+
+                <div class="lang" data-lang="python" title="Python">
+                    <i class="fa-brands fa-python"></i>
+                </div>
+
+                <button id="clearChatBtn" type="button" title="Clear chat">
+                    <i class="fa-regular fa-trash-can"></i>
+                </button>
+            </div>
+
+            <div id="chat">
+                <div id="emptyState">
+                    <h1>ErrorLens</h1>
+                    <p>Paste in an error and I will explain it for you!</p>
+                </div>
+            </div>
+
+            <form id="inputBar">
+                <textarea id="error" placeholder="Write your error." autocomplete="off" rows="1"></textarea>
+
+                <button id="sendBtn" type="submit">
+                    <i class="fa-solid fa-paper-plane"></i>
+                </button>
+            </form>
+        </div>
+
+        <script>
+            let currentLang = "javascript";
+            let thinkingBubble = null;
+
+            function setLang(lang, selectedButton = null) {
+                currentLang = lang;
+
+                const root = document.documentElement;
+
+                if (lang === "html") root.style.setProperty("--accent", "#e34c26");
+                else if (lang === "css") root.style.setProperty("--accent", "#264de4");
+                else if (lang === "javascript") root.style.setProperty("--accent", "#f7df1e");
+                else if (lang === "python") root.style.setProperty("--accent", "#3776ab");
+                else root.style.setProperty("--accent", "#1f6feb");
+
+                document.querySelectorAll(".lang").forEach(button => {
+                    button.classList.remove("active");
+                });
+
+                if (selectedButton) {
+                    selectedButton.classList.add("active");
+                } else {
+                    document.querySelector(`[data-lang="${lang}"]`)?.classList.add("active");
+                }
+            }
+
+            function escapeHtml(text) {
+                return text
+                    .replaceAll("&", "&amp;")
+                    .replaceAll("<", "&lt;")
+                    .replaceAll(">", "&gt;");
+            }
+
+            function normalizeLanguage(lang) {
+                if (!lang) return "plaintext";
+
+                const lower = lang.toLowerCase();
+
+                if (lower === "js") return "javascript";
+                if (lower === "html") return "xml";
+                if (lower === "css") return "css";
+                if (lower === "python" || lower === "py") return "python";
+
+                return lower;
+            }
+
+            function formatInlineMarkdown(text) {
+                let safe = escapeHtml(text);
+
+                safe = safe.replace(/^### (.*)$/gm, "<h3>$1</h3>");
+                safe = safe.replace(/^## (.*)$/gm, "<h2>$1</h2>");
+                safe = safe.replace(/^# (.*)$/gm, "<h1>$1</h1>");
+
+                safe = safe.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
+                safe = safe.replace(/\*(.*?)\*/g, "<em>$1</em>");
+                safe = safe.replace(/`([^`]+)`/g, "<code>$1</code>");
+
+                safe = safe.replace(/\n/g, "<br>");
+
+                return safe;
+            }
+
+            function formatMarkdown(text) {
+                const codeBlockRegex = /```([a-zA-Z0-9]*)\s*\n([\s\S]*?)```/g;
+
+                let result = "";
+                let lastIndex = 0;
+                let match;
+
+                while ((match = codeBlockRegex.exec(text)) !== null) {
+                    const beforeCodeBlock = text.slice(lastIndex, match.index);
+                    const language = match[1] || "plaintext";
+                    const normalizedLanguage = normalizeLanguage(language);
+                    const code = match[2].trim();
+
+                    result += formatInlineMarkdown(beforeCodeBlock);
+
+                    result += `<div class="codeBlock"><div class="codeHeader"><span class="codeLang">${escapeHtml(language)}</span><button class="codeCopyBtn" type="button" data-code="${encodeURIComponent(code)}"><i class="fa-regular fa-copy"></i></button></div><pre><code class="language-${normalizedLanguage}">${escapeHtml(code)}</code></pre></div>`;
+
+                    lastIndex = codeBlockRegex.lastIndex;
+                }
+
+                const afterLastCodeBlock = text.slice(lastIndex);
+                result += formatInlineMarkdown(afterLastCodeBlock);
+
+                return result;
+            }
+
+            function highlightCodeBlocks(container) {
+                container.querySelectorAll("pre code").forEach(block => {
+                    hljs.highlightElement(block);
+                });
+            }
+
+            function setupCodeCopyButtons(container) {
+                container.querySelectorAll(".codeCopyBtn").forEach(button => {
+                    button.addEventListener("click", () => {
+                        const code = decodeURIComponent(button.dataset.code);
+
+                        navigator.clipboard.writeText(code);
+
+                        button.innerHTML = '<i class="fa-solid fa-check"></i>';
+
+                        setTimeout(() => {
+                            button.innerHTML = '<i class="fa-regular fa-copy"></i>';
+                        }, 1200);
+                    });
+                });
+            }
+
+            function getLangColor(lang) {
+                if (lang === "html") return "#e34c26";
+                if (lang === "css") return "#264de4";
+                if (lang === "javascript") return "#f7df1e";
+                if (lang === "python") return "#3776ab";
+
+                return "#1f6feb";
+            }
+
+            function getLangIcon(lang) {
+                if (lang === "html") return '<i class="fa-brands fa-html5"></i>';
+                if (lang === "css") return '<i class="fa-brands fa-css3-alt"></i>';
+                if (lang === "javascript") return '<i class="fa-brands fa-js"></i>';
+                if (lang === "python") return '<i class="fa-brands fa-python"></i>';
+
+                return '<i class="fa-solid fa-code"></i>';
+            }
+
+            function hideEmptyState() {
+                const emptyState = document.getElementById("emptyState");
+
+                if (emptyState) {
+                    emptyState.remove();
+                }
+            }
+
+            function addMessage(type, text, lang = null) {
+                hideEmptyState();
+                const chat = document.getElementById("chat");
+
+                const div = document.createElement("div");
+                div.classList.add("msg", type);
+
+                if (type === "ai" && lang) {
+                    div.style.setProperty("--message-accent", getLangColor(lang));
+                }
+
+                if (type === "ai") {
+                    div.innerHTML = formatMarkdown(text);
+
+                    if (lang) {
+                        const icon = document.createElement("div");
+                        icon.className = "messageLangIcon";
+                        icon.innerHTML = getLangIcon(lang);
+                        div.appendChild(icon);
+                    }
+
+                    setupCodeCopyButtons(div);
+                    highlightCodeBlocks(div);
+                } else {
+                    div.innerText = text;
+                }
+
+                chat.appendChild(div);
+                chat.scrollTop = chat.scrollHeight;
+            }
+
+            function showThinking(lang) {
+                const chat = document.getElementById("chat");
+
+                thinkingBubble = document.createElement("div");
+                thinkingBubble.classList.add("msg", "ai", "thinking");
+                thinkingBubble.style.setProperty("--message-accent", getLangColor(lang));
+                thinkingBubble.innerHTML = `Thinking<span class="dots">...</span>`;
+
+                const icon = document.createElement("div");
+                icon.className = "messageLangIcon";
+                icon.innerHTML = getLangIcon(lang);
+
+                thinkingBubble.appendChild(icon);
+
+                chat.appendChild(thinkingBubble);
+                chat.scrollTop = chat.scrollHeight;
+            }
+
+            function removeThinking() {
+                if (thinkingBubble) {
+                    thinkingBubble.remove();
+                    thinkingBubble = null;
+                }
+            }
+
+            function sleep(ms) {
+                return new Promise(resolve => setTimeout(resolve, ms));
+            }
+
+            function createCopyButton(text) {
+                const btn = document.createElement("button");
+                btn.className = "copyBtn";
+                btn.innerHTML = '<i class="fa-regular fa-copy"></i>';
+                btn.title = "Kopiera";
+
+                btn.onclick = () => {
+                    navigator.clipboard.writeText(text);
+                    btn.innerHTML = '<i class="fa-solid fa-check"></i>';
+
+                    setTimeout(() => {
+                        btn.innerHTML = '<i class="fa-regular fa-copy"></i>';
+                    }, 1200);
+                };
+
+                return btn;
+            }
+
+            async function addAiMessageTypewriter(text, lang) {
+                const chat = document.getElementById("chat");
+
+                const div = document.createElement("div");
+                div.classList.add("msg", "ai");
+                div.style.setProperty("--message-accent", getLangColor(lang));
+
+                const content = document.createElement("div");
+                content.className = "messageContent";
+
+                const icon = document.createElement("div");
+                icon.className = "messageLangIcon";
+                icon.innerHTML = getLangIcon(lang);
+
+                div.appendChild(content);
+                div.appendChild(icon);
+
+                chat.appendChild(div);
+                chat.scrollTop = chat.scrollHeight;
+
+                let output = "";
+
+                for (let i = 0; i < text.length; i++) {
+                    output += text[i];
+
+                    content.innerHTML =
+                        escapeHtml(output).replace(/\n/g, "<br>") + '<span class="typingCursor">|</span>';
+
+                    chat.scrollTop = chat.scrollHeight;
+
+                    await sleep(8);
+                }
+
+                content.innerHTML = formatMarkdown(text);
+                setupCodeCopyButtons(content);
+                highlightCodeBlocks(content);
+
+                chat.scrollTop = chat.scrollHeight;
+            }
+
+            async function sendRequest() {
+                const input = document.getElementById("error");
+                const sendBtn = document.getElementById("sendBtn");
+
+                const error = input.value.trim();
+
+                if (!error) return;
+
+                const selectedLang = currentLang;
+
+                addMessage("user", error);
+
+                input.value = "";
+                input.style.height = "auto";
+                sendBtn.disabled = true;
+                showThinking(selectedLang);
+
+                try {
+                    const response = await fetch("http://localhost:3000/analyze", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            error,
+                            language: selectedLang,
+                            responseLanguage: navigator.language || "en-US"
+                        })
+                    });
+
+                    const data = await response.json();
+
+                    removeThinking();
+                    await addAiMessageTypewriter(data.explanation, selectedLang);
+
+                } catch (err) {
+                    removeThinking();
+                    await addAiMessageTypewriter("Något gick fel när meddelandet skulle skickas.", selectedLang);
+                }
+
+                sendBtn.disabled = false;
+                input.focus();
+            }
+
+            document.getElementById("inputBar").addEventListener("submit", function(event) {
+                event.preventDefault();
+                sendRequest();
+            });
+
+            document.querySelectorAll(".lang").forEach(button => {
+                button.addEventListener("click", () => {
+                    setLang(button.dataset.lang, button);
+                });
+            });
+
+            const errorInput = document.getElementById("error");
+
+            errorInput.addEventListener("input", () => {
+                errorInput.style.height = "auto";
+                errorInput.style.height = errorInput.scrollHeight + "px";
+            });
+
+            errorInput.addEventListener("keydown", function(event) {
+                if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    sendRequest();
+                }
+            });
+
+            document.getElementById("clearChatBtn").addEventListener("click", () => {
+                const chat = document.getElementById("chat");
+
+                chat.innerHTML = `
+                    <div id="emptyState">
+                        <h1>ErrorLens</h1>
+                        <p>Klistra in ett programmeringsfel så förklarar jag det enkelt.</p>
+                    </div>
+                `;
+            });
+
+            setLang("javascript");
+        </script>
+    </body>
+</html>
