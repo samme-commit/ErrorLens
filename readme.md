@@ -101,7 +101,6 @@ ErrorLens/
 ├── app.css
 ├── package.json
 ├── package-lock.json
-├── .env
 ├── .gitignore
 └── README.md
 ```
